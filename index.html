@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nigeria Tax Compliance Tracker - Professional Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+
+        .tab-active {
+            border-bottom: 3px solid #059669;
+            color: #059669;
+        }
+
+        .saving-indicator {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #059669;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .saving-indicator.visible {
+            opacity: 1;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen bg-gradient-to-br from-green-50 to-emerald-50">
+    <div id="root"></div>
+
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="text/babel">
+        const { useState, useMemo, useEffect, useCallback } = React;
+
+        const API_URL = 'http://localhost:3000/api';
+
+        const TaxComplianceTracker = () => {
+            const [businessInfo, setBusinessInfo] = useState({
+                name: '',
+                rcNumber: '',
+                tin: '',
+                fiscalYearStart: new Date().getFullYear() + '-01-01'
+            });
+
+            const [salesEntries, setSalesEntries] = useState([]);
+            const [expenseEntries, setExpenseEntries] = useState([]);
+            const [activeTab, setActiveTab] = useState('entry');
+            const [viewPeriod, setViewPeriod] = useState('weekly');
+            const [isSaving, setIsSaving] = useState(false);
+
+            // Fetch initial data
+            useEffect(() => {
+                fetch(`${API_URL}/init`)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.businessInfo) setBusinessInfo(data.businessInfo);
+                        if (data.salesEntries) setSalesEntries(data.salesEntries);
+                        if (data.expenseEntries) setExpenseEntries(data.expenseEntries);
+                    })
+                    .catch(err => console.error('Error fetching data:', err));
+            }, []);
+
+            const saveBusinessInfo = async (info) => {
+                setIsSaving(true);
+                try {
+                    await fetch(`${API_URL}/business-info`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(info)
+                    });
+                } catch (err) {
+                    console.error('Error saving business info:', err);
+                } finally {
+                    setTimeout(() => setIsSaving(false), 500);
+                }
+            };
+
+            const updateBusinessInfo = (field, value) => {
+                const newInfo = { ...businessInfo, [field]: value };
+                setBusinessInfo(newInfo);
+            };
+
+            const saveTransaction = async (entry, type) => {
+                setIsSaving(true);
+                try {
+                    // Extract ID and Date, rest is data
+                    const { id, date, ...data } = entry;
+                    await fetch(`${API_URL}/transaction/${id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ date, data })
+                    });
+                } catch (err) {
+                    console.error('Error saving transaction:', err);
+                } finally {
+                    setTimeout(() => setIsSaving(false), 500);
+                }
+            };
+
+            const addSalesEntry = async () => {
+                const newEntry = {
+                    date: new Date().toISOString().split('T')[0],
+                    data: {
+                        invoiceNo: '',
+                        customerName: '',
+                        customerTIN: '',
+                        description: '',
+                        quantity: 0,
+                        unitPrice: 0,
+                        paymentMethod: 'Cash',
+                        category: 'Goods'
+                    }
+                };
+
+                try {
+                    const res = await fetch(`${API_URL}/transaction`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ type: 'sale', ...newEntry })
+                    });
+                    const result = await res.json();
+
+                    if (result.success) {
+                        setSalesEntries([...salesEntries, { id: result.id, ...newEntry.data, date: newEntry.date }]);
+                    }
+                } catch (err) {
+                    console.error('Error adding sale:', err);
+                }
+            };
+
+            const addExpenseEntry = async () => {
+                const newEntry = {
+                    date: new Date().toISOString().split('T')[0],
+                    data: {
+                        category: 'Supplies',
+                        vendorName: '',
+                        vendorTIN: '',
+                        receiptNo: '',
+                        description: '',
+                        grossAmount: 0,
+                        whtRate: 0,
+                        paymentMethod: 'Cash',
+                        deductible: 'Yes'
+                    }
+                };
+
+                try {
+                    const res = await fetch(`${API_URL}/transaction`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ type: 'expense', ...newEntry })
+                    });
+                    const result = await res.json();
+
+                    if (result.success) {
+                        setExpenseEntries([...expenseEntries, { id: result.id, ...newEntry.data, date: newEntry.date }]);
+                    }
+                } catch (err) {
+                    console.error('Error adding expense:', err);
+                }
+            };
+
+            const updateSalesEntry = (id, field, value) => {
+                const updatedEntries = salesEntries.map(entry =>
+                    entry.id === id ? { ...entry, [field]: value } : entry
+                );
+                setSalesEntries(updatedEntries);
+            };
+
+            const updateExpenseEntry = (id, field, value) => {
+                const updatedEntries = expenseEntries.map(entry =>
+                    entry.id === id ? { ...entry, [field]: value } : entry
+                );
+                setExpenseEntries(updatedEntries);
+            };
+
+            const handleBlurSale = (id) => {
+                const entry = salesEntries.find(e => e.id === id);
+                if (entry) saveTransaction(entry, 'sale');
+            };
+
+            const handleBlurExpense = (id) => {
+                const entry = expenseEntries.find(e => e.id === id);
+                if (entry) saveTransaction(entry, 'expense');
+            };
+
+            const deleteSalesEntry = async (id) => {
+                if (!confirm('Are you sure?')) return;
+                try {
+                    await fetch(`${API_URL}/transaction/${id}`, { method: 'DELETE' });
+                    setSalesEntries(salesEntries.filter(entry => entry.id !== id));
+                } catch (err) {
+                    console.error('Error deleting sale:', err);
+                }
+            };
+
+            const deleteExpenseEntry = async (id) => {
+                if (!confirm('Are you sure?')) return;
+                try {
+                    await fetch(`${API_URL}/transaction/${id}`, { method: 'DELETE' });
+                    setExpenseEntries(expenseEntries.filter(entry => entry.id !== id));
+                } catch (err) {
+                    console.error('Error deleting expense:', err);
+                }
+            };
+
+            const calculateSalesMetrics = (entry) => {
+                const grossAmount = entry.quantity * entry.unitPrice;
+                const vatAmount = grossAmount * 0.075;
+                const totalAmount = grossAmount + vatAmount;
+                return { grossAmount, vatAmount, totalAmount };
+            };
+
+            const calculateExpenseMetrics = (entry) => {
+                const grossAmount = parseFloat(entry.grossAmount) || 0;
+                const vatAmount = grossAmount * 0.075;
+                const whtAmount = grossAmount * (parseFloat(entry.whtRate) / 100);
+                const totalAmount = grossAmount + vatAmount;
+                return { vatAmount, whtAmount, totalAmount };
+            };
+
+            const getWeekNumber = (date) => {
+                const d = new Date(date);
+                d.setHours(0, 0, 0, 0);
+                d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+                const yearStart = new Date(d.getFullYear(), 0, 1);
+                return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+            };
+
+            const getMonthYear = (date) => {
+                const d = new Date(date);
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            };
+
+            const getYear = (date) => {
+                return new Date(date).getFullYear();
+            };
+
+            const aggregateData = (entries, type, period) => {
+                const grouped = {};
+
+                entries.forEach(entry => {
+                    let key;
+                    if (period === 'weekly') {
+                        key = `Week ${getWeekNumber(entry.date)} - ${getYear(entry.date)}`;
+                    } else if (period === 'monthly') {
+                        const monthYear = getMonthYear(entry.date);
+                        const date = new Date(monthYear + '-01');
+                        key = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                    } else {
+                        key = getYear(entry.date).toString();
+                    }
+
+                    if (!grouped[key]) {
+                        grouped[key] = [];
+                    }
+                    grouped[key].push(entry);
+                });
+
+                return grouped;
+            };
+
+            const calculatePeriodSummary = (salesGroup, expenseGroup) => {
+                const totalGrossSales = salesGroup.reduce((sum, entry) => {
+                    const { grossAmount } = calculateSalesMetrics(entry);
+                    return sum + grossAmount;
+                }, 0);
+
+                const totalVATCollected = salesGroup.reduce((sum, entry) => {
+                    const { vatAmount } = calculateSalesMetrics(entry);
+                    return sum + vatAmount;
+                }, 0);
+
+                const totalSalesRevenue = salesGroup.reduce((sum, entry) => {
+                    const { totalAmount } = calculateSalesMetrics(entry);
+                    return sum + totalAmount;
+                }, 0);
+
+                const totalGrossExpenses = expenseGroup.reduce((sum, entry) => {
+                    return sum + (parseFloat(entry.grossAmount) || 0);
+                }, 0);
+
+                const totalVATOnPurchases = expenseGroup.reduce((sum, entry) => {
+                    const { vatAmount } = calculateExpenseMetrics(entry);
+                    return sum + vatAmount;
+                }, 0);
+
+                const totalWHTOnExpenses = expenseGroup.reduce((sum, entry) => {
+                    const { whtAmount } = calculateExpenseMetrics(entry);
+                    return sum + whtAmount;
+                }, 0);
+
+                const totalExpenses = expenseGroup.reduce((sum, entry) => {
+                    const { totalAmount } = calculateExpenseMetrics(entry);
+                    return sum + totalAmount;
+                }, 0);
+
+                const netVATPayable = totalVATCollected - totalVATOnPurchases;
+                const assessableProfit = totalGrossSales - totalGrossExpenses;
+                const companyIncomeTax = assessableProfit > 0 ? assessableProfit * 0.30 : 0;
+                const educationTax = assessableProfit > 0 ? assessableProfit * 0.025 : 0;
+                const totalTaxLiability = netVATPayable + companyIncomeTax + educationTax;
+
+                return {
+                    totalGrossSales,
+                    totalVATCollected,
+                    totalSalesRevenue,
+                    totalGrossExpenses,
+                    totalVATOnPurchases,
+                    totalWHTOnExpenses,
+                    totalExpenses,
+                    netVATPayable,
+                    assessableProfit,
+                    companyIncomeTax,
+                    educationTax,
+                    totalTaxLiability
+                };
+            };
+
+            const summaryData = useMemo(() => {
+                const salesByPeriod = aggregateData(salesEntries, 'sales', viewPeriod);
+                const expensesByPeriod = aggregateData(expenseEntries, 'expenses', viewPeriod);
+
+                const allPeriods = new Set([
+                    ...Object.keys(salesByPeriod),
+                    ...Object.keys(expensesByPeriod)
+                ]);
+
+                const summaries = {};
+                allPeriods.forEach(period => {
+                    summaries[period] = calculatePeriodSummary(
+                        salesByPeriod[period] || [],
+                        expensesByPeriod[period] || []
+                    );
+                });
+
+                return summaries;
+            }, [salesEntries, expenseEntries, viewPeriod]);
+
+            const exportToCSV = () => {
+                let csv = 'NIGERIA TAX COMPLIANCE TRACKER - PROFESSIONAL EDITION\n\n';
+                csv += `Business Name:,${businessInfo.name}\n`;
+                csv += `RC Number:,${businessInfo.rcNumber}\n`;
+                csv += `TIN:,${businessInfo.tin}\n`;
+                csv += `Fiscal Year Start:,${businessInfo.fiscalYearStart}\n`;
+                csv += `Export Date:,${new Date().toLocaleDateString()}\n\n`;
+
+                csv += '=== SALES ENTRIES ===\n';
+                csv += 'Date,Invoice No,Customer,Customer TIN,Description,Quantity,Unit Price,Gross Amount,VAT (7.5%),Total,Payment Method,Category\n';
+                salesEntries.forEach(entry => {
+                    const { grossAmount, vatAmount, totalAmount } = calculateSalesMetrics(entry);
+                    csv += `${entry.date},${entry.invoiceNo},${entry.customerName},${entry.customerTIN},${entry.description},${entry.quantity},${entry.unitPrice},${grossAmount.toFixed(2)},${vatAmount.toFixed(2)},${totalAmount.toFixed(2)},${entry.paymentMethod},${entry.category}\n`;
+                });
+
+                csv += '\n=== EXPENSE ENTRIES ===\n';
+                csv += 'Date,Category,Vendor,Vendor TIN,Receipt No,Description,Gross Amount,VAT (7.5%),WHT Rate,WHT Amount,Total,Payment Method,Deductible\n';
+                expenseEntries.forEach(entry => {
+                    const { vatAmount, whtAmount, totalAmount } = calculateExpenseMetrics(entry);
+                    csv += `${entry.date},${entry.category},${entry.vendorName},${entry.vendorTIN},${entry.receiptNo},${entry.description},${entry.grossAmount},${vatAmount.toFixed(2)},${entry.whtRate}%,${whtAmount.toFixed(2)},${totalAmount.toFixed(2)},${entry.paymentMethod},${entry.deductible}\n`;
+                });
+
+                csv += `\n=== ${viewPeriod.toUpperCase()} SUMMARY ===\n`;
+                csv += 'Period,Gross Sales,VAT Collected,Sales Revenue,Gross Expenses,VAT on Purchases,WHT on Expenses,Total Expenses,Net VAT Payable,Assessable Profit,CIT (30%),Education Tax (2.5%),Total Tax Liability\n';
+
+                Object.entries(summaryData).forEach(([period, summary]) => {
+                    csv += `${period},${summary.totalGrossSales.toFixed(2)},${summary.totalVATCollected.toFixed(2)},${summary.totalSalesRevenue.toFixed(2)},${summary.totalGrossExpenses.toFixed(2)},${summary.totalVATOnPurchases.toFixed(2)},${summary.totalWHTOnExpenses.toFixed(2)},${summary.totalExpenses.toFixed(2)},${summary.netVATPayable.toFixed(2)},${summary.assessableProfit.toFixed(2)},${summary.companyIncomeTax.toFixed(2)},${summary.educationTax.toFixed(2)},${summary.totalTaxLiability.toFixed(2)}\n`;
+                });
+
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Tax_Compliance_${viewPeriod}_${new Date().toISOString().split('T')[0]}.csv`;
+                a.click();
+            };
+
+            const clearAllData = async () => {
+                if (confirm('Are you sure you want to clear all data? This cannot be undone.')) {
+                    try {
+                        await fetch(`${API_URL}/clear`, { method: 'POST' });
+                        setSalesEntries([]);
+                        setExpenseEntries([]);
+                        setBusinessInfo({
+                            name: '',
+                            rcNumber: '',
+                            tin: '',
+                            fiscalYearStart: new Date().getFullYear() + '-01-01'
+                        });
+                    } catch (err) {
+                        console.error('Error clearing data:', err);
+                    }
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-50 p-4">
+                    <div className="max-w-7xl mx-auto">
+                        <div className={`saving-indicator ${isSaving ? 'visible' : ''}`}>
+                            Saving...
+                        </div>
+                        {/* Header */}
+                        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+                            <div className="flex items-center justify-between mb-6">
+                                <div>
+                                    <h1 className="text-3xl font-bold text-green-800">Nigeria Tax Compliance Tracker</h1>
+                                    <p className="text-gray-600 mt-1">Professional Edition - Weekly, Monthly & Yearly Reports</p>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={exportToCSV}
+                                        className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                        </svg>
+                                        Export CSV
+                                    </button>
+                                    <button
+                                        onClick={clearAllData}
+                                        className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition"
+                                    >
+                                        Clear Data
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Business Info */}
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Business Name</label>
+                                    <input
+                                        type="text"
+                                        value={businessInfo.name}
+                                        onChange={(e) => updateBusinessInfo('name', e.target.value)}
+                                        onBlur={() => saveBusinessInfo(businessInfo)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                        placeholder="Enter business name"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">RC Number</label>
+                                    <input
+                                        type="text"
+                                        value={businessInfo.rcNumber}
+                                        onChange={(e) => updateBusinessInfo('rcNumber', e.target.value)}
+                                        onBlur={() => saveBusinessInfo(businessInfo)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                        placeholder="RC123456"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">TIN</label>
+                                    <input
+                                        type="text"
+                                        value={businessInfo.tin}
+                                        onChange={(e) => updateBusinessInfo('tin', e.target.value)}
+                                        onBlur={() => saveBusinessInfo(businessInfo)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                        placeholder="Tax ID Number"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Fiscal Year Start</label>
+                                    <input
+                                        type="date"
+                                        value={businessInfo.fiscalYearStart}
+                                        onChange={(e) => updateBusinessInfo('fiscalYearStart', e.target.value)}
+                                        onBlur={() => saveBusinessInfo(businessInfo)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Tabs */}
+                        <div className="bg-white rounded-lg shadow-lg mb-6">
+                            <div className="flex border-b">
+                                <button
+                                    onClick={() => setActiveTab('entry')}
+                                    className={`px-6 py-4 font-semibold transition ${activeTab === 'entry' ? 'tab-active' : 'text-gray-600 hover:text-green-600'}`}
+                                >
+                                    Data Entry
+                                </button>
+                                <button
+                                    onClick={() => setActiveTab('summary')}
+                                    className={`px-6 py-4 font-semibold transition ${activeTab === 'summary' ? 'tab-active' : 'text-gray-600 hover:text-green-600'}`}
+                                >
+                                    Tax Summary
+                                </button>
+                            </div>
+
+                            {activeTab === 'entry' && (
+                                <div className="p-6">
+                                    {/* Sales Section */}
+                                    <div className="mb-8">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h2 className="text-2xl font-bold text-green-800">Sales Entries</h2>
+                                            <button
+                                                onClick={addSalesEntry}
+                                                className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                                            >
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                                </svg>
+                                                Add Sale
+                                            </button>
+                                        </div>
+
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm">
+                                                <thead className="bg-gray-50">
+                                                    <tr>
+                                                        <th className="px-2 py-3 text-left font-semibold">Date</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">Invoice #</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">Customer</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">Description</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">Qty</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">Unit Price</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">Gross</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">VAT</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">Total</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">Payment</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">Action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {salesEntries.map((entry) => {
+                                                        const { grossAmount, vatAmount, totalAmount } = calculateSalesMetrics(entry);
+                                                        return (
+                                                            <tr key={entry.id} className="border-b hover:bg-gray-50">
+                                                                <td className="px-2 py-2">
+                                                                    <input
+                                                                        type="date"
+                                                                        value={entry.date}
+                                                                        onChange={(e) => updateSalesEntry(entry.id, 'date', e.target.value)}
+                                                                        onBlur={() => handleBlurSale(entry.id)}
+                                                                        className="w-32 px-2 py-1 border rounded"
+                                                                    />
+                                                                </td>
+                                                                <td className="px-2 py-2">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={entry.invoiceNo}
+                                                                        onChange={(e) => updateSalesEntry(entry.id, 'invoiceNo', e.target.value)}
+                                                                        onBlur={() => handleBlurSale(entry.id)}
+                                                                        className="w-24 px-2 py-1 border rounded"
+                                                                        placeholder="INV-001"
+                                                                    />
+                                                                </td>
+                                                                <td className="px-2 py-2">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={entry.customerName}
+                                                                        onChange={(e) => updateSalesEntry(entry.id, 'customerName', e.target.value)}
+                                                                        onBlur={() => handleBlurSale(entry.id)}
+                                                                        className="w-32 px-2 py-1 border rounded"
+                                                                        placeholder="Customer"
+                                                                    />
+                                                                </td>
+                                                                <td className="px-2 py-2">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={entry.description}
+                                                                        onChange={(e) => updateSalesEntry(entry.id, 'description', e.target.value)}
+                                                                        onBlur={() => handleBlurSale(entry.id)}
+                                                                        className="w-40 px-2 py-1 border rounded"
+                                                                        placeholder="Description"
+                                                                    />
+                                                                </td>
+                                                                <td className="px-2 py-2">
+                                                                    <input
+                                                                        type="number"
+                                                                        value={entry.quantity}
+                                                                        onChange={(e) => updateSalesEntry(entry.id, 'quantity', parseFloat(e.target.value) || 0)}
+                                                                        onBlur={() => handleBlurSale(entry.id)}
+                                                                        className="w-16 px-2 py-1 border rounded"
+                                                                        min="0"
+                                                                    />
+                                                                </td>
+                                                                <td className="px-2 py-2">
+                                                                    <input
+                                                                        type="number"
+                                                                        value={entry.unitPrice}
+                                                                        onChange={(e) => updateSalesEntry(entry.id, 'unitPrice', parseFloat(e.target.value) || 0)}
+                                                                        onBlur={() => handleBlurSale(entry.id)}
+                                                                        className="w-24 px-2 py-1 border rounded"
+                                                                        min="0"
+                                                                        step="0.01"
+                                                                    />
+                                                                </td>
+                                                                <td className="px-2 py-2 text-right font-medium">₦{grossAmount.toFixed(2)}</td>
+                                                                <td className="px-2 py-2 text-right text-green-600">₦{vatAmount.toFixed(2)}</td>
+                                                                <td className="px-2 py-2 text-right font-bold">₦{totalAmount.toFixed(2)}</td>
+                                                                <td className="px-2 py-2">
+                                                                    <select
+                                                                        value={entry.paymentMethod}
+                                                                        onChange={(e) => updateSalesEntry(entry.id, 'paymentMethod', e.target.value)}
+                                                                        onBlur={() => handleBlurSale(entry.id)}
+                                                                        className="w-24 px-2 py-1 border rounded"
+                                                                    >
+                                                                        <option>Cash</option>
+                                                                        <option>Bank</option>
+                                                                        <option>POS</option>
+                                                                        <option>Mobile</option>
+                                                                    </select>
+                                                                </td>
+                                                                <td className="px-2 py-2">
+                                                                    <button
+                                                                        onClick={() => deleteSalesEntry(entry.id)}
+                                                                        className="text-red-600 hover:text-red-800"
+                                                                    >
+                                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                                        </svg>
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        {salesEntries.length === 0 && (
+                                            <p className="text-center text-gray-500 py-8">No sales entries yet. Click "Add Sale" to get started.</p>
+                                        )}
+                                    </div>
+
+                                    {/* Expenses Section */}
+                                    <div>
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h2 className="text-2xl font-bold text-green-800">Expense Entries</h2>
+                                            <button
+                                                onClick={addExpenseEntry}
+                                                className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition"
+                                            >
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                                </svg>
+                                                Add Expense
+                                            </button>
+                                        </div>
+
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm">
+                                                <thead className="bg-gray-50">
+                                                    <tr>
+                                                        <th className="px-2 py-3 text-left font-semibold">Date</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">Category</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">Vendor</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">Description</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">Gross</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">VAT</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">WHT %</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">WHT Amt</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">Total</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">Payment</th>
+                                                        <th className="px-2 py-3 text-left font-semibold">Action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {expenseEntries.map((entry) => {
+                                                        const { vatAmount, whtAmount, totalAmount } = calculateExpenseMetrics(entry);
+                                                        return (
+                                                            <tr key={entry.id} className="border-b hover:bg-gray-50">
+                                                                <td className="px-2 py-2">
+                                                                    <input
+                                                                        type="date"
+                                                                        value={entry.date}
+                                                                        onChange={(e) => updateExpenseEntry(entry.id, 'date', e.target.value)}
+                                                                        onBlur={() => handleBlurExpense(entry.id)}
+                                                                        className="w-32 px-2 py-1 border rounded"
+                                                                    />
+                                                                </td>
+                                                                <td className="px-2 py-2">
+                                                                    <select
+                                                                        value={entry.category}
+                                                                        onChange={(e) => updateExpenseEntry(entry.id, 'category', e.target.value)}
+                                                                        onBlur={() => handleBlurExpense(entry.id)}
+                                                                        className="w-32 px-2 py-1 border rounded"
+                                                                    >
+                                                                        <option>Supplies</option>
+                                                                        <option>Service</option>
+                                                                        <option>Rent</option>
+                                                                        <option>Utility</option>
+                                                                        <option>Other</option>
+                                                                    </select>
+                                                                </td>
+                                                                <td className="px-2 py-2">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={entry.vendorName}
+                                                                        onChange={(e) => updateExpenseEntry(entry.id, 'vendorName', e.target.value)}
+                                                                        onBlur={() => handleBlurExpense(entry.id)}
+                                                                        className="w-32 px-2 py-1 border rounded"
+                                                                        placeholder="Vendor"
+                                                                    />
+                                                                </td>
+                                                                <td className="px-2 py-2">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={entry.description}
+                                                                        onChange={(e) => updateExpenseEntry(entry.id, 'description', e.target.value)}
+                                                                        onBlur={() => handleBlurExpense(entry.id)}
+                                                                        className="w-40 px-2 py-1 border rounded"
+                                                                        placeholder="Description"
+                                                                    />
+                                                                </td>
+                                                                <td className="px-2 py-2">
+                                                                    <input
+                                                                        type="number"
+                                                                        value={entry.grossAmount}
+                                                                        onChange={(e) => updateExpenseEntry(entry.id, 'grossAmount', parseFloat(e.target.value) || 0)}
+                                                                        onBlur={() => handleBlurExpense(entry.id)}
+                                                                        className="w-24 px-2 py-1 border rounded"
+                                                                        min="0"
+                                                                        step="0.01"
+                                                                    />
+                                                                </td>
+                                                                <td className="px-2 py-2 text-right text-green-600">₦{vatAmount.toFixed(2)}</td>
+                                                                <td className="px-2 py-2">
+                                                                    <select
+                                                                        value={entry.whtRate}
+                                                                        onChange={(e) => updateExpenseEntry(entry.id, 'whtRate', parseFloat(e.target.value))}
+                                                                        onBlur={() => handleBlurExpense(entry.id)}
+                                                                        className="w-20 px-2 py-1 border rounded"
+                                                                    >
+                                                                        <option value={0}>0%</option>
+                                                                        <option value={5}>5%</option>
+                                                                        <option value={10}>10%</option>
+                                                                    </select>
+                                                                </td>
+                                                                <td className="px-2 py-2 text-right text-red-600">₦{whtAmount.toFixed(2)}</td>
+                                                                <td className="px-2 py-2 text-right font-bold">₦{totalAmount.toFixed(2)}</td>
+                                                                <td className="px-2 py-2">
+                                                                    <select
+                                                                        value={entry.paymentMethod}
+                                                                        onChange={(e) => updateExpenseEntry(entry.id, 'paymentMethod', e.target.value)}
+                                                                        onBlur={() => handleBlurExpense(entry.id)}
+                                                                        className="w-24 px-2 py-1 border rounded"
+                                                                    >
+                                                                        <option>Cash</option>
+                                                                        <option>Bank</option>
+                                                                        <option>POS</option>
+                                                                        <option>Mobile</option>
+                                                                    </select>
+                                                                </td>
+                                                                <td className="px-2 py-2">
+                                                                    <button
+                                                                        onClick={() => deleteExpenseEntry(entry.id)}
+                                                                        className="text-red-600 hover:text-red-800"
+                                                                    >
+                                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                                        </svg>
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        {expenseEntries.length === 0 && (
+                                            <p className="text-center text-gray-500 py-8">No expense entries yet. Click "Add Expense" to get started.</p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'summary' && (
+                                <div className="p-6">
+                                    <div className="flex items-center justify-between mb-6">
+                                        <h2 className="text-2xl font-bold text-green-800">Tax Summary Report</h2>
+                                        <div className="flex bg-gray-100 rounded-lg p-1">
+                                            {['weekly', 'monthly', 'yearly'].map((period) => (
+                                                <button
+                                                    key={period}
+                                                    onClick={() => setViewPeriod(period)}
+                                                    className={`px-4 py-2 rounded-lg capitalize ${viewPeriod === period ? 'bg-white shadow text-green-800 font-semibold' : 'text-gray-600 hover:text-green-600'}`}
+                                                >
+                                                    {period}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-gray-50">
+                                                <tr>
+                                                    <th className="px-4 py-3 text-left font-semibold">Period</th>
+                                                    <th className="px-4 py-3 text-right font-semibold">Gross Sales</th>
+                                                    <th className="px-4 py-3 text-right font-semibold">Sales VAT</th>
+                                                    <th className="px-4 py-3 text-right font-semibold">Gross Exp</th>
+                                                    <th className="px-4 py-3 text-right font-semibold">Purch. VAT</th>
+                                                    <th className="px-4 py-3 text-right font-semibold text-green-700">Net VAT</th>
+                                                    <th className="px-4 py-3 text-right font-semibold">WHT</th>
+                                                    <th className="px-4 py-3 text-right font-semibold">CIT (30%)</th>
+                                                    <th className="px-4 py-3 text-right font-semibold">Edu Tax</th>
+                                                    <th className="px-4 py-3 text-right font-bold text-gray-900">Total Due</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {Object.entries(summaryData).map(([period, summary]) => (
+                                                    <tr key={period} className="border-b hover:bg-gray-50">
+                                                        <td className="px-4 py-3 font-medium text-gray-900">{period}</td>
+                                                        <td className="px-4 py-3 text-right">₦{summary.totalGrossSales.toLocaleString()}</td>
+                                                        <td className="px-4 py-3 text-right text-gray-600">₦{summary.totalVATCollected.toLocaleString()}</td>
+                                                        <td className="px-4 py-3 text-right">₦{summary.totalGrossExpenses.toLocaleString()}</td>
+                                                        <td className="px-4 py-3 text-right text-gray-600">₦{summary.totalVATOnPurchases.toLocaleString()}</td>
+                                                        <td className="px-4 py-3 text-right font-medium text-green-700">₦{summary.netVATPayable.toLocaleString()}</td>
+                                                        <td className="px-4 py-3 text-right text-red-600">₦{summary.totalWHTOnExpenses.toLocaleString()}</td>
+                                                        <td className="px-4 py-3 text-right">₦{summary.companyIncomeTax.toLocaleString()}</td>
+                                                        <td className="px-4 py-3 text-right">₦{summary.educationTax.toLocaleString()}</td>
+                                                        <td className="px-4 py-3 text-right font-bold text-gray-900 bg-gray-50">₦{summary.totalTaxLiability.toLocaleString()}</td>
+                                                    </tr>
+                                                ))}
+                                                {Object.keys(summaryData).length === 0 && (
+                                                    <tr>
+                                                        <td colSpan="10" className="text-center py-8 text-gray-500">
+                                                            No data available for the selected period. Add sales or expenses to see the summary.
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    {/* Liability Breakdown Cards */}
+                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-8">
+                                        <div className="bg-green-50 p-4 rounded-lg border border-green-100">
+                                            <h3 className="text-green-800 font-semibold mb-1">Assessable Profit</h3>
+                                            <p className="text-2xl font-bold text-green-600">
+                                                ₦{Object.values(summaryData).reduce((sum, s) => sum + s.assessableProfit, 0).toLocaleString()}
+                                            </p>
+                                        </div>
+                                        <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                                            <h3 className="text-blue-800 font-semibold mb-1">Net VAT Payable</h3>
+                                            <p className="text-2xl font-bold text-blue-600">
+                                                ₦{Object.values(summaryData).reduce((sum, s) => sum + s.netVATPayable, 0).toLocaleString()}
+                                            </p>
+                                        </div>
+                                        <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
+                                            <h3 className="text-purple-800 font-semibold mb-1">Company Income Tax</h3>
+                                            <p className="text-2xl font-bold text-purple-600">
+                                                ₦{Object.values(summaryData).reduce((sum, s) => sum + s.companyIncomeTax, 0).toLocaleString()}
+                                            </p>
+                                        </div>
+                                        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                            <h3 className="text-gray-800 font-semibold mb-1">Total Tax Liability</h3>
+                                            <p className="text-2xl font-bold text-gray-900">
+                                                ₦{Object.values(summaryData).reduce((sum, s) => sum + s.totalTaxLiability, 0).toLocaleString()}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<TaxComplianceTracker />);
+    </script>
+</body>
+
+</html>
